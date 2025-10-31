@@ -4,18 +4,45 @@ const UniCoverSimulation = () => {
   const [simulationResults, setSimulationResults] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState({ completed: 0, total: 0, percentage: 0 });
+  const [activeTab, setActiveTab] = useState('retail'); // 'retail' or 'institutional'
   const workerRef = useRef(null);
 
   const [params, setParams] = useState({
+    // Channel Distribution
+    channelMode: 'both', // 'both', 'b2c_only', 'b2b2c_only'
+    b2cPct: 60, // % of users from B2C when mode is 'both'
+
+    // General
     totalUsers: 5000,
     numIterations: 2000,
-    avgAppFee: 70,
+    avgAppFee: 44, // Real data from DOE and in-house data
     stripeFee: 3.5,
-    ultraEliteRejectionRate: 80,
-    regularRejectionRate: 30,
     claimRate: 90,
+
+    // B2C (Retail) Rejection Rates - Real data from DOE
+    ultraEliteRejectionRate: 93, // Real data: ultra-elite schools reject 93%
+    regularRejectionRate: 27, // Real data: regular schools reject 27%
+
+    // B2B2C (Institutional) Rejection Rates - Same students, same rates
+    institutionalUltraEliteRejectionRate: 93, // Same as retail - same students
+    institutionalRegularRejectionRate: 27, // Same as retail - same students
+
+    // Institutional Discount Tier Distribution (must add up to 100%)
+    pilotPct: 20,      // 15% discount
+    smallPct: 30,      // 20% discount
+    mediumPct: 30,     // 25% discount
+    largePct: 15,      // 30% discount
+    enterprisePct: 5,  // 35% discount
+
+    // Customer Acquisition Costs
+    b2cCAC: 50,        // Higher CAC for retail (ads, marketing)
+    b2b2cCAC: 5,       // Lower CAC for institutional (sales calls, demos)
+
+    // Reimbursement
     ultraEliteReimbursement: 50,
     regularReimbursement: 65,
+
+    // Pricing & Coverage
     starterPrice: 99,
     standardPrice: 159,
     premiumPrice: 199,
@@ -67,14 +94,33 @@ const UniCoverSimulation = () => {
   );
 
   const ParamInput = ({ label, value, onChange, tooltip, min, max, step, suffix }) => {
+    const [localValue, setLocalValue] = React.useState(value);
+
+    // Update local value when prop changes (e.g., from reset or external update)
+    React.useEffect(() => {
+      setLocalValue(value);
+    }, [value]);
+
     const handleChange = (e) => {
       const val = e.target.value;
-      if (val === '' || val === '-') {
-        return;
-      }
-      const numVal = parseFloat(val);
+      setLocalValue(val); // Allow any input including empty string
+    };
+
+    const handleBlur = () => {
+      // Validate and update parent state on blur
+      const numVal = parseFloat(localValue);
       if (!isNaN(numVal)) {
         onChange(numVal);
+      } else {
+        // Reset to last valid value if invalid
+        setLocalValue(value);
+      }
+    };
+
+    const handleKeyDown = (e) => {
+      // Update on Enter key
+      if (e.key === 'Enter') {
+        handleBlur();
       }
     };
 
@@ -87,8 +133,10 @@ const UniCoverSimulation = () => {
         <div className="flex items-center gap-2">
           <input
             type="number"
-            value={value}
+            value={localValue}
             onChange={handleChange}
+            onBlur={handleBlur}
+            onKeyDown={handleKeyDown}
             min={min}
             max={max}
             step={step || 1}
@@ -242,7 +290,63 @@ const UniCoverSimulation = () => {
       <div className="mb-8 p-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
         <h2 className="text-xl font-bold mb-4 text-gray-900">Simulation Parameters</h2>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* Tab Navigation */}
+        <div className="flex gap-2 mb-6 border-b border-gray-300">
+          <button
+            onClick={() => setActiveTab('retail')}
+            className={`px-6 py-3 font-semibold transition-colors ${
+              activeTab === 'retail'
+                ? 'border-b-4 border-orange-500 text-orange-600 bg-white'
+                : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
+            }`}
+          >
+            Retail (B2C)
+          </button>
+          <button
+            onClick={() => setActiveTab('institutional')}
+            className={`px-6 py-3 font-semibold transition-colors ${
+              activeTab === 'institutional'
+                ? 'border-b-4 border-purple-500 text-purple-600 bg-white'
+                : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
+            }`}
+          >
+            Institutional (B2B2C)
+          </button>
+        </div>
+
+        {/* Always Visible: Channel Distribution & General Settings */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6 pb-6 border-b border-gray-300">
+          <div>
+            <h3 className="font-semibold text-gray-800 mb-3">Channel Distribution</h3>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Channel Mode
+                <Tooltip text="Choose whether to simulate B2C (direct retail), B2B2C (institutional), or both channels together" />
+              </label>
+              <select
+                value={params.channelMode}
+                onChange={(e) => updateParam('channelMode', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+              >
+                <option value="both">Both Channels</option>
+                <option value="b2c_only">B2C Only (Retail)</option>
+                <option value="b2b2c_only">B2B2C Only (Institutional)</option>
+              </select>
+            </div>
+            {params.channelMode === 'both' && (
+              <ParamInput
+                label="B2C %"
+                value={params.b2cPct}
+                onChange={(v) => updateParam('b2cPct', v)}
+                tooltip="Percentage of total users from retail channel. Remainder will be institutional."
+                min={0}
+                max={100}
+                step={5}
+                suffix="%"
+              />
+            )}
+          </div>
+
           <div>
             <h3 className="font-semibold text-gray-800 mb-3">General Settings</h3>
             <ParamInput
@@ -267,10 +371,10 @@ const UniCoverSimulation = () => {
               label="Avg App Fee"
               value={params.avgAppFee}
               onChange={(v) => updateParam('avgAppFee', v)}
-              tooltip="Average application fee across all schools"
+              tooltip="Real data: average application fee is $44 across all schools (DOE + in-house data)"
               min={30}
               max={100}
-              step={5}
+              step={1}
               suffix="$"
             />
             <ParamInput
@@ -286,14 +390,42 @@ const UniCoverSimulation = () => {
           </div>
 
           <div>
-            <h3 className="font-semibold text-gray-800 mb-3">
-              Plan Distribution
-              {Math.abs((params.starterPct + params.standardPct + params.premiumPct) - 100) > 0.01 && (
-                <span className="ml-2 text-xs font-normal text-red-600">
-                  (Total: {(params.starterPct + params.standardPct + params.premiumPct).toFixed(1)}%)
-                </span>
-              )}
-            </h3>
+            <h3 className="font-semibold text-gray-800 mb-3">Customer Acquisition Costs</h3>
+            <ParamInput
+              label="B2C CAC"
+              value={params.b2cCAC}
+              onChange={(v) => updateParam('b2cCAC', v)}
+              tooltip="Customer Acquisition Cost for retail users (ads, marketing, etc.)"
+              min={0}
+              max={200}
+              step={5}
+              suffix="$"
+            />
+            <ParamInput
+              label="B2B2C CAC"
+              value={params.b2b2cCAC}
+              onChange={(v) => updateParam('b2b2cCAC', v)}
+              tooltip="Customer Acquisition Cost per institutional user (sales, demos). Typically much lower."
+              min={0}
+              max={100}
+              step={1}
+              suffix="$"
+            />
+          </div>
+        </div>
+
+        {/* Retail (B2C) Tab Content */}
+        {activeTab === 'retail' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div>
+              <h3 className="font-semibold text-gray-800 mb-3">
+                Plan Distribution
+                {Math.abs((params.starterPct + params.standardPct + params.premiumPct) - 100) > 0.01 && (
+                  <span className="ml-2 text-xs font-normal text-red-600">
+                    (Total: {(params.starterPct + params.standardPct + params.premiumPct).toFixed(1)}%)
+                  </span>
+                )}
+              </h3>
             <ParamInput
               label="Starter Plan %"
               value={params.starterPct}
@@ -326,13 +458,13 @@ const UniCoverSimulation = () => {
             />
           </div>
 
-          <div>
-            <h3 className="font-semibold text-gray-800 mb-3">Rejection & Claim Rates</h3>
+            <div>
+              <h3 className="font-semibold text-gray-800 mb-3">Rejection & Claim Rates</h3>
             <ParamInput
               label="Ultra-Elite Rejection"
               value={params.ultraEliteRejectionRate}
               onChange={(v) => updateParam('ultraEliteRejectionRate', v)}
-              tooltip="Rejection rate for ultra-elite schools (Ivy League, etc.). These schools typically reject 85-95% of applicants."
+              tooltip="Real data from DOE: ultra-elite schools (Ivy League, etc.) reject 93% of applicants on average."
               min={50}
               max={100}
               step={1}
@@ -342,7 +474,7 @@ const UniCoverSimulation = () => {
               label="Regular Rejection"
               value={params.regularRejectionRate}
               onChange={(v) => updateParam('regularRejectionRate', v)}
-              tooltip="Rejection rate for regular schools. KEY DRIVER of profitability - varies widely by student quality."
+              tooltip="Real data from DOE and in-house: regular schools reject 27% of applicants on average. KEY DRIVER of profitability."
               min={0}
               max={80}
               step={5}
@@ -358,10 +490,10 @@ const UniCoverSimulation = () => {
               step={5}
               suffix="%"
             />
-          </div>
+            </div>
 
-          <div>
-            <h3 className="font-semibold text-gray-800 mb-3">Reimbursement Rates</h3>
+            <div>
+              <h3 className="font-semibold text-gray-800 mb-3">Reimbursement Rates</h3>
             <ParamInput
               label="Ultra-Elite Reimb"
               value={params.ultraEliteReimbursement}
@@ -508,8 +640,300 @@ const UniCoverSimulation = () => {
               step={25}
               suffix="$"
             />
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* Institutional (B2B2C) Tab Content */}
+        {activeTab === 'institutional' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div>
+              <h3 className="font-semibold text-gray-800 mb-3">
+                Plan Distribution
+                {Math.abs((params.starterPct + params.standardPct + params.premiumPct) - 100) > 0.01 && (
+                  <span className="ml-2 text-xs font-normal text-red-600">
+                    (Total: {(params.starterPct + params.standardPct + params.premiumPct).toFixed(1)}%)
+                  </span>
+                )}
+              </h3>
+              <ParamInput
+                label="Starter Plan %"
+                value={params.starterPct}
+                onChange={(v) => updateParam('starterPct', v)}
+                tooltip="Percentage of total users who choose the Starter plan. All three should add up to 100%."
+                min={0}
+                max={100}
+                step={0.01}
+                suffix="%"
+              />
+              <ParamInput
+                label="Standard Plan %"
+                value={params.standardPct}
+                onChange={(v) => updateParam('standardPct', v)}
+                tooltip="Percentage of total users who choose the Standard plan. All three should add up to 100%."
+                min={0}
+                max={100}
+                step={0.01}
+                suffix="%"
+              />
+              <ParamInput
+                label="Premium Plan %"
+                value={params.premiumPct}
+                onChange={(v) => updateParam('premiumPct', v)}
+                tooltip="Percentage of total users who choose the Premium plan. All three should add up to 100%."
+                min={0}
+                max={100}
+                step={0.01}
+                suffix="%"
+              />
+            </div>
+
+            <div>
+              <h3 className="font-semibold text-gray-800 mb-3">Institutional Rejection Rates</h3>
+              <ParamInput
+                label="Ultra-Elite Rejection"
+                value={params.institutionalUltraEliteRejectionRate}
+                onChange={(v) => updateParam('institutionalUltraEliteRejectionRate', v)}
+                tooltip="Same students, same rates: 93% rejection rate for ultra-elite schools (real DOE data)"
+                min={50}
+                max={100}
+                step={1}
+                suffix="%"
+              />
+              <ParamInput
+                label="Regular Rejection"
+                value={params.institutionalRegularRejectionRate}
+                onChange={(v) => updateParam('institutionalRegularRejectionRate', v)}
+                tooltip="Same students, same rates: 27% rejection rate for regular schools (real DOE data)"
+                min={0}
+                max={80}
+                step={5}
+                suffix="%"
+              />
+              <ParamInput
+                label="Claim Rate"
+                value={params.claimRate}
+                onChange={(v) => updateParam('claimRate', v)}
+                tooltip="% of rejected users who actually submit claims. Not everyone follows through even if eligible."
+                min={20}
+                max={100}
+                step={5}
+                suffix="%"
+              />
+            </div>
+
+            <div>
+              <h3 className="font-semibold text-gray-800 mb-3">
+                Discount Tier Distribution
+                {Math.abs((params.pilotPct + params.smallPct + params.mediumPct + params.largePct + params.enterprisePct) - 100) > 0.01 && (
+                  <span className="ml-2 text-xs font-normal text-red-600">
+                    (Total: {(params.pilotPct + params.smallPct + params.mediumPct + params.largePct + params.enterprisePct).toFixed(1)}%)
+                  </span>
+                )}
+              </h3>
+              <ParamInput
+                label="Pilot (15% off)"
+                value={params.pilotPct}
+                onChange={(v) => updateParam('pilotPct', v)}
+                tooltip="% of institutional users in Pilot tier (25-99 students, 15% discount). All five should add to 100%."
+                min={0}
+                max={100}
+                step={5}
+                suffix="%"
+              />
+              <ParamInput
+                label="Small (20% off)"
+                value={params.smallPct}
+                onChange={(v) => updateParam('smallPct', v)}
+                tooltip="% of institutional users in Small tier (100-249 students, 20% discount)"
+                min={0}
+                max={100}
+                step={5}
+                suffix="%"
+              />
+              <ParamInput
+                label="Medium (25% off)"
+                value={params.mediumPct}
+                onChange={(v) => updateParam('mediumPct', v)}
+                tooltip="% of institutional users in Medium tier (250-499 students, 25% discount)"
+                min={0}
+                max={100}
+                step={5}
+                suffix="%"
+              />
+              <ParamInput
+                label="Large (30% off)"
+                value={params.largePct}
+                onChange={(v) => updateParam('largePct', v)}
+                tooltip="% of institutional users in Large tier (500-999 students, 30% discount)"
+                min={0}
+                max={100}
+                step={5}
+                suffix="%"
+              />
+              <ParamInput
+                label="Enterprise (35% off)"
+                value={params.enterprisePct}
+                onChange={(v) => updateParam('enterprisePct', v)}
+                tooltip="% of institutional users in Enterprise tier (1000+ students, 35% discount)"
+                min={0}
+                max={100}
+                step={5}
+                suffix="%"
+              />
+            </div>
+
+            <div>
+              <h3 className="font-semibold text-gray-800 mb-3">Reimbursement Rates</h3>
+              <ParamInput
+                label="Ultra-Elite Reimb"
+                value={params.ultraEliteReimbursement}
+                onChange={(v) => updateParam('ultraEliteReimbursement', v)}
+                tooltip="% of application fee reimbursed for ultra-elite rejections. Lower % protects margins."
+                min={0}
+                max={100}
+                step={5}
+                suffix="%"
+              />
+              <ParamInput
+                label="Regular Reimb"
+                value={params.regularReimbursement}
+                onChange={(v) => updateParam('regularReimbursement', v)}
+                tooltip="% of application fee reimbursed for regular school rejections. Can be higher since rejection probability is lower."
+                min={0}
+                max={100}
+                step={5}
+                suffix="%"
+              />
+            </div>
+
+            <div>
+              <h3 className="font-semibold text-gray-800 mb-3">Starter Plan</h3>
+              <ParamInput
+                label="Schools"
+                value={params.starterTotalSchools}
+                onChange={(v) => updateParam('starterTotalSchools', v)}
+                tooltip="Total schools covered by Starter plan"
+                min={1}
+                max={15}
+                step={1}
+              />
+              <ParamInput
+                label="Ultra-Elite Max"
+                value={params.starterUltraEliteMax}
+                onChange={(v) => updateParam('starterUltraEliteMax', v)}
+                tooltip="Max ultra-elite schools allowed. Lower = less risk."
+                min={0}
+                max={params.starterTotalSchools}
+                step={1}
+              />
+              <ParamInput
+                label="Price"
+                value={params.starterPrice}
+                onChange={(v) => updateParam('starterPrice', v)}
+                tooltip="Plan price. Higher = more revenue but may reduce conversions."
+                min={39}
+                max={200}
+                step={5}
+                suffix="$"
+              />
+              <ParamInput
+                label="Max Payout"
+                value={params.starterMaxPayout}
+                onChange={(v) => updateParam('starterMaxPayout', v)}
+                tooltip="Maximum reimbursement cap. Protects from worst-case scenarios."
+                min={100}
+                max={500}
+                step={25}
+                suffix="$"
+              />
+            </div>
+
+            <div>
+              <h3 className="font-semibold text-gray-800 mb-3">Standard Plan</h3>
+              <ParamInput
+                label="Schools"
+                value={params.standardTotalSchools}
+                onChange={(v) => updateParam('standardTotalSchools', v)}
+                tooltip="Total schools covered by Standard plan"
+                min={1}
+                max={15}
+                step={1}
+              />
+              <ParamInput
+                label="Ultra-Elite Max"
+                value={params.standardUltraEliteMax}
+                onChange={(v) => updateParam('standardUltraEliteMax', v)}
+                tooltip="Max ultra-elite schools allowed"
+                min={0}
+                max={params.standardTotalSchools}
+                step={1}
+              />
+              <ParamInput
+                label="Price"
+                value={params.standardPrice}
+                onChange={(v) => updateParam('standardPrice', v)}
+                tooltip="Plan price. Typically the most popular tier."
+                min={79}
+                max={300}
+                step={5}
+                suffix="$"
+              />
+              <ParamInput
+                label="Max Payout"
+                value={params.standardMaxPayout}
+                onChange={(v) => updateParam('standardMaxPayout', v)}
+                tooltip="Maximum reimbursement cap for Standard plan"
+                min={150}
+                max={700}
+                step={25}
+                suffix="$"
+              />
+            </div>
+
+            <div>
+              <h3 className="font-semibold text-gray-800 mb-3">Premium Plan</h3>
+              <ParamInput
+                label="Schools"
+                value={params.premiumTotalSchools}
+                onChange={(v) => updateParam('premiumTotalSchools', v)}
+                tooltip="Total schools covered by Premium plan"
+                min={1}
+                max={15}
+                step={1}
+              />
+              <ParamInput
+                label="Ultra-Elite Max"
+                value={params.premiumUltraEliteMax}
+                onChange={(v) => updateParam('premiumUltraEliteMax', v)}
+                tooltip="Max ultra-elite schools allowed. Higher tier = more coverage."
+                min={0}
+                max={params.premiumTotalSchools}
+                step={1}
+              />
+              <ParamInput
+                label="Price"
+                value={params.premiumPrice}
+                onChange={(v) => updateParam('premiumPrice', v)}
+                tooltip="Plan price. Higher coverage but also higher risk exposure."
+                min={119}
+                max={400}
+                step={5}
+                suffix="$"
+              />
+              <ParamInput
+                label="Max Payout"
+                value={params.premiumMaxPayout}
+                onChange={(v) => updateParam('premiumMaxPayout', v)}
+                tooltip="Maximum reimbursement cap. Critical for risk management."
+                min={200}
+                max={900}
+                step={25}
+                suffix="$"
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="mb-8 p-6 bg-gradient-to-r from-amber-50 to-yellow-50 rounded-lg border border-amber-200">
@@ -619,6 +1043,15 @@ const UniCoverSimulation = () => {
                     <td className="border border-gray-300 px-4 py-2 text-right">{formatCurrency(simulationResults.aggregate.stripeFees.min)}</td>
                     <td className="border border-gray-300 px-4 py-2 text-right">{formatCurrency(simulationResults.aggregate.stripeFees.max)}</td>
                   </tr>
+                  <tr className="bg-orange-50">
+                    <td className="border border-gray-300 px-4 py-2 font-medium">Customer Acquisition Cost (CAC)</td>
+                    <td className="border border-gray-300 px-4 py-2 text-right">{formatCurrency(simulationResults.aggregate.cac.mean)}</td>
+                    <td className="border border-gray-300 px-4 py-2 text-right">{formatCurrency(simulationResults.aggregate.cac.median)}</td>
+                    <td className="border border-gray-300 px-4 py-2 text-right">{formatCurrency(simulationResults.aggregate.cac.p25)}</td>
+                    <td className="border border-gray-300 px-4 py-2 text-right">{formatCurrency(simulationResults.aggregate.cac.p75)}</td>
+                    <td className="border border-gray-300 px-4 py-2 text-right">{formatCurrency(simulationResults.aggregate.cac.min)}</td>
+                    <td className="border border-gray-300 px-4 py-2 text-right">{formatCurrency(simulationResults.aggregate.cac.max)}</td>
+                  </tr>
                   <tr className={simulationResults.aggregate.netProfit.mean < 0 ? 'bg-red-50 font-semibold' : 'bg-green-50 font-semibold'}>
                     <td className="border border-gray-300 px-4 py-2">Net Profit</td>
                     <td className="border border-gray-300 px-4 py-2 text-right">{formatCurrency(simulationResults.aggregate.netProfit.mean)}</td>
@@ -686,6 +1119,15 @@ const UniCoverSimulation = () => {
                       <td className="border border-gray-300 px-4 py-2 text-right">{formatCurrency(simulationResults[planType].stripeFees.min)}</td>
                       <td className="border border-gray-300 px-4 py-2 text-right">{formatCurrency(simulationResults[planType].stripeFees.max)}</td>
                     </tr>
+                    <tr className="bg-orange-50">
+                      <td className="border border-gray-300 px-4 py-2 font-medium">CAC</td>
+                      <td className="border border-gray-300 px-4 py-2 text-right">{formatCurrency(simulationResults[planType].cac.mean)}</td>
+                      <td className="border border-gray-300 px-4 py-2 text-right">{formatCurrency(simulationResults[planType].cac.median)}</td>
+                      <td className="border border-gray-300 px-4 py-2 text-right">{formatCurrency(simulationResults[planType].cac.p25)}</td>
+                      <td className="border border-gray-300 px-4 py-2 text-right">{formatCurrency(simulationResults[planType].cac.p75)}</td>
+                      <td className="border border-gray-300 px-4 py-2 text-right">{formatCurrency(simulationResults[planType].cac.min)}</td>
+                      <td className="border border-gray-300 px-4 py-2 text-right">{formatCurrency(simulationResults[planType].cac.max)}</td>
+                    </tr>
                     <tr className={simulationResults[planType].netProfit.mean < 0 ? 'bg-red-50 font-semibold' : 'bg-green-50 font-semibold'}>
                       <td className="border border-gray-300 px-4 py-2">Net Profit</td>
                       <td className="border border-gray-300 px-4 py-2 text-right">{formatCurrency(simulationResults[planType].netProfit.mean)}</td>
@@ -727,6 +1169,216 @@ const UniCoverSimulation = () => {
               </div>
             </div>
           ))}
+
+          {/* Channel Comparison Section */}
+          <div className="mt-8">
+            <h2 className="text-2xl font-bold mb-4">Channel Comparison: B2C vs B2B2C</h2>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* B2C Results */}
+              <div className="bg-blue-50 p-6 rounded-lg border border-blue-200">
+                <h3 className="text-xl font-semibold mb-4 text-blue-900">B2C (Retail) Channel</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse border border-gray-300 text-sm">
+                    <thead>
+                      <tr className="bg-blue-100">
+                        <th className="border border-gray-300 px-3 py-2 text-left">Metric</th>
+                        <th className="border border-gray-300 px-3 py-2 text-right">Mean</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td className="border border-gray-300 px-3 py-2 font-medium">Revenue</td>
+                        <td className="border border-gray-300 px-3 py-2 text-right">{formatCurrency(simulationResults.b2c.aggregate.revenue.mean)}</td>
+                      </tr>
+                      <tr className="bg-red-50">
+                        <td className="border border-gray-300 px-3 py-2 font-medium">Payouts</td>
+                        <td className="border border-gray-300 px-3 py-2 text-right">{formatCurrency(simulationResults.b2c.aggregate.payouts.mean)}</td>
+                      </tr>
+                      <tr>
+                        <td className="border border-gray-300 px-3 py-2 font-medium">Stripe Fees</td>
+                        <td className="border border-gray-300 px-3 py-2 text-right">{formatCurrency(simulationResults.b2c.aggregate.stripeFees.mean)}</td>
+                      </tr>
+                      <tr className="bg-orange-50">
+                        <td className="border border-gray-300 px-3 py-2 font-medium">CAC</td>
+                        <td className="border border-gray-300 px-3 py-2 text-right">{formatCurrency(simulationResults.b2c.aggregate.cac.mean)}</td>
+                      </tr>
+                      <tr className={simulationResults.b2c.aggregate.netProfit.mean < 0 ? 'bg-red-100 font-semibold' : 'bg-green-100 font-semibold'}>
+                        <td className="border border-gray-300 px-3 py-2">Net Profit</td>
+                        <td className="border border-gray-300 px-3 py-2 text-right">{formatCurrency(simulationResults.b2c.aggregate.netProfit.mean)}</td>
+                      </tr>
+                      <tr className={simulationResults.b2c.aggregate.profitMargin.mean < 0 ? 'bg-red-200 font-semibold' : 'bg-green-200 font-semibold'}>
+                        <td className="border border-gray-300 px-3 py-2">Profit Margin</td>
+                        <td className="border border-gray-300 px-3 py-2 text-right">{formatPercent(simulationResults.b2c.aggregate.profitMargin.mean)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* B2B2C Results */}
+              <div className="bg-purple-50 p-6 rounded-lg border border-purple-200">
+                <h3 className="text-xl font-semibold mb-4 text-purple-900">B2B2C (Institutional) Channel</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse border border-gray-300 text-sm">
+                    <thead>
+                      <tr className="bg-purple-100">
+                        <th className="border border-gray-300 px-3 py-2 text-left">Metric</th>
+                        <th className="border border-gray-300 px-3 py-2 text-right">Mean</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td className="border border-gray-300 px-3 py-2 font-medium">Revenue</td>
+                        <td className="border border-gray-300 px-3 py-2 text-right">{formatCurrency(simulationResults.b2b2c.aggregate.revenue.mean)}</td>
+                      </tr>
+                      <tr className="bg-red-50">
+                        <td className="border border-gray-300 px-3 py-2 font-medium">Payouts</td>
+                        <td className="border border-gray-300 px-3 py-2 text-right">{formatCurrency(simulationResults.b2b2c.aggregate.payouts.mean)}</td>
+                      </tr>
+                      <tr>
+                        <td className="border border-gray-300 px-3 py-2 font-medium">Stripe Fees</td>
+                        <td className="border border-gray-300 px-3 py-2 text-right">{formatCurrency(simulationResults.b2b2c.aggregate.stripeFees.mean)}</td>
+                      </tr>
+                      <tr className="bg-orange-50">
+                        <td className="border border-gray-300 px-3 py-2 font-medium">CAC</td>
+                        <td className="border border-gray-300 px-3 py-2 text-right">{formatCurrency(simulationResults.b2b2c.aggregate.cac.mean)}</td>
+                      </tr>
+                      <tr className={simulationResults.b2b2c.aggregate.netProfit.mean < 0 ? 'bg-red-100 font-semibold' : 'bg-green-100 font-semibold'}>
+                        <td className="border border-gray-300 px-3 py-2">Net Profit</td>
+                        <td className="border border-gray-300 px-3 py-2 text-right">{formatCurrency(simulationResults.b2b2c.aggregate.netProfit.mean)}</td>
+                      </tr>
+                      <tr className={simulationResults.b2b2c.aggregate.profitMargin.mean < 0 ? 'bg-red-200 font-semibold' : 'bg-green-200 font-semibold'}>
+                        <td className="border border-gray-300 px-3 py-2">Profit Margin</td>
+                        <td className="border border-gray-300 px-3 py-2 text-right">{formatPercent(simulationResults.b2b2c.aggregate.profitMargin.mean)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Contract Value Calculator */}
+          <div className="mt-8 p-6 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg border border-green-200">
+            <h2 className="text-2xl font-bold mb-4 text-gray-900">Institutional Contract Value Calculator</h2>
+            <p className="text-sm text-gray-600 mb-4">
+              Based on your current pricing and discount tiers, here are sample institutional contract values:
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Sample Contract 1 */}
+              <div className="bg-white p-4 rounded-lg border border-green-300">
+                <h3 className="font-semibold text-lg mb-3 text-green-800">Medium High School (300 students)</h3>
+                <div className="text-sm space-y-2">
+                  <p className="text-gray-600">Plan Mix: 50 Starter, 200 Standard, 50 Premium</p>
+                  <p className="text-gray-600">Tier: Medium (25% discount)</p>
+                  <div className="border-t border-gray-200 pt-2 mt-2">
+                    <div className="flex justify-between">
+                      <span>Starter (50 × ${(params.starterPrice * 0.75).toFixed(0)}):</span>
+                      <span className="font-medium">${(50 * params.starterPrice * 0.75).toFixed(0)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Standard (200 × ${(params.standardPrice * 0.75).toFixed(0)}):</span>
+                      <span className="font-medium">${(200 * params.standardPrice * 0.75).toFixed(0)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Premium (50 × ${(params.premiumPrice * 0.75).toFixed(0)}):</span>
+                      <span className="font-medium">${(50 * params.premiumPrice * 0.75).toFixed(0)}</span>
+                    </div>
+                    <div className="border-t border-gray-300 pt-2 mt-2 flex justify-between font-bold text-green-700">
+                      <span>Total Contract:</span>
+                      <span>${(50 * params.starterPrice * 0.75 + 200 * params.standardPrice * 0.75 + 50 * params.premiumPrice * 0.75).toFixed(0)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Sample Contract 2 */}
+              <div className="bg-white p-4 rounded-lg border border-green-300">
+                <h3 className="font-semibold text-lg mb-3 text-green-800">Large Network (1,000 students)</h3>
+                <div className="text-sm space-y-2">
+                  <p className="text-gray-600">Plan Mix: 100 Starter, 700 Standard, 200 Premium</p>
+                  <p className="text-gray-600">Tier: Enterprise (35% discount)</p>
+                  <div className="border-t border-gray-200 pt-2 mt-2">
+                    <div className="flex justify-between">
+                      <span>Starter (100 × ${(params.starterPrice * 0.65).toFixed(0)}):</span>
+                      <span className="font-medium">${(100 * params.starterPrice * 0.65).toFixed(0)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Standard (700 × ${(params.standardPrice * 0.65).toFixed(0)}):</span>
+                      <span className="font-medium">${(700 * params.standardPrice * 0.65).toFixed(0)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Premium (200 × ${(params.premiumPrice * 0.65).toFixed(0)}):</span>
+                      <span className="font-medium">${(200 * params.premiumPrice * 0.65).toFixed(0)}</span>
+                    </div>
+                    <div className="border-t border-gray-300 pt-2 mt-2 flex justify-between font-bold text-green-700">
+                      <span>Total Contract:</span>
+                      <span>${(100 * params.starterPrice * 0.65 + 700 * params.standardPrice * 0.65 + 200 * params.premiumPrice * 0.65).toFixed(0)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Sample Contract 3 */}
+              <div className="bg-white p-4 rounded-lg border border-green-300">
+                <h3 className="font-semibold text-lg mb-3 text-green-800">School District (1,500 students)</h3>
+                <div className="text-sm space-y-2">
+                  <p className="text-gray-600">Plan Mix: 200 Starter, 1000 Standard, 300 Premium</p>
+                  <p className="text-gray-600">Tier: Enterprise (35% discount)</p>
+                  <div className="border-t border-gray-200 pt-2 mt-2">
+                    <div className="flex justify-between">
+                      <span>Starter (200 × ${(params.starterPrice * 0.65).toFixed(0)}):</span>
+                      <span className="font-medium">${(200 * params.starterPrice * 0.65).toFixed(0)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Standard (1000 × ${(params.standardPrice * 0.65).toFixed(0)}):</span>
+                      <span className="font-medium">${(1000 * params.standardPrice * 0.65).toFixed(0)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Premium (300 × ${(params.premiumPrice * 0.65).toFixed(0)}):</span>
+                      <span className="font-medium">${(300 * params.premiumPrice * 0.65).toFixed(0)}</span>
+                    </div>
+                    <div className="border-t border-gray-300 pt-2 mt-2 flex justify-between font-bold text-green-700">
+                      <span>Total Contract:</span>
+                      <span>${(200 * params.starterPrice * 0.65 + 1000 * params.standardPrice * 0.65 + 300 * params.premiumPrice * 0.65).toFixed(0)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 p-4 bg-white rounded border border-green-300">
+              <h4 className="font-semibold mb-2">Discount Tier Reference</h4>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
+                <div>
+                  <span className="font-medium text-gray-700">Pilot:</span>
+                  <p className="text-gray-600">25-99 students</p>
+                  <p className="text-green-700 font-semibold">15% off</p>
+                </div>
+                <div>
+                  <span className="font-medium text-gray-700">Small:</span>
+                  <p className="text-gray-600">100-249 students</p>
+                  <p className="text-green-700 font-semibold">20% off</p>
+                </div>
+                <div>
+                  <span className="font-medium text-gray-700">Medium:</span>
+                  <p className="text-gray-600">250-499 students</p>
+                  <p className="text-green-700 font-semibold">25% off</p>
+                </div>
+                <div>
+                  <span className="font-medium text-gray-700">Large:</span>
+                  <p className="text-gray-600">500-999 students</p>
+                  <p className="text-green-700 font-semibold">30% off</p>
+                </div>
+                <div>
+                  <span className="font-medium text-gray-700">Enterprise:</span>
+                  <p className="text-gray-600">1000+ students</p>
+                  <p className="text-green-700 font-semibold">35% off</p>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
